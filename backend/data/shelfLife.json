@@ -1,0 +1,94 @@
+{
+  "Dairy": {
+    "milk": 7,
+    "yogurt": 14,
+    "cheese": 30,
+    "butter": 60,
+    "cream": 10,
+    "sour_cream": 14,
+    "eggs": 28,
+    "cottage_cheese": 10
+  },
+  "Meat": {
+    "chicken": 2,
+    "beef": 3,
+    "pork": 3,
+    "lamb": 3,
+    "ground_meat": 2,
+    "bacon": 7,
+    "ham": 7,
+    "turkey": 2
+  },
+  "Vegetables": {
+    "tomato": 5,
+    "cucumber": 7,
+    "lettuce": 7,
+    "spinach": 5,
+    "broccoli": 5,
+    "carrot": 30,
+    "potato": 60,
+    "onion": 60,
+    "garlic": 60,
+    "bell_pepper": 10,
+    "zucchini": 5,
+    "cabbage": 30,
+    "celery": 14
+  },
+  "Fruits": {
+    "apple": 30,
+    "banana": 5,
+    "orange": 14,
+    "lemon": 30,
+    "grape": 7,
+    "strawberry": 3,
+    "blueberry": 5,
+    "watermelon": 14,
+    "mango": 7,
+    "pineapple": 7,
+    "kiwi": 14,
+    "peach": 5
+  },
+  "Bakery": {
+    "bread": 4,
+    "bagel": 5,
+    "croissant": 3,
+    "donut": 2,
+    "cake": 3,
+    "cookies": 14,
+    "muffin": 2,
+    "pizza": 3
+  },
+  "Condiments": {
+    "ketchup": 180,
+    "mustard": 180,
+    "mayo": 180,
+    "olive_oil": 365,
+    "vinegar": 365,
+    "soy_sauce": 365,
+    "peanut_butter": 180,
+    "jam": 180,
+    "salsa": 60,
+    "hot_sauce": 365
+  },
+  "Beverages": {
+    "milk_shake": 3,
+    "juice": 7,
+    "coffee": 180,
+    "tea": 365,
+    "soda": 180,
+    "beer": 180,
+    "wine": 365,
+    "water": 365
+  },
+  "Frozen": {
+    "frozen_vegetables": 365,
+    "frozen_pizza": 180,
+    "ice_cream": 180,
+    "frozen_berries": 365,
+    "frozen_meat": 180,
+    "frozen_fish": 180
+  },
+  "Other": {
+    "generic_item": 14
+  }
+}

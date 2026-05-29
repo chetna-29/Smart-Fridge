@@ -1,0 +1,8 @@
+{
+  "appId": "com.smartfridge.ai",
+  "appName": "Smart Fridge AI",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  }
+}

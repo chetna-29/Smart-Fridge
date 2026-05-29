@@ -1,0 +1,18 @@
+{
+  "name": "Smart Fridge AI",
+  "short_name": "Fridge AI",
+  "description": "Track food freshness, expiry dates, and fridge inventory.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "48x48 72x72 96x96 128x128 192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
