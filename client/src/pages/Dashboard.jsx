@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { 
   getFoodItems, 
   addFoodItem, 
   updateFoodItem, 
   deleteFoodItem,
-  getExpirySuggestion
+  consumeFoodItem,
+  getExpirySuggestion,
+  searchFoodReference,
+  getAiNotifications
 } from '../services/api';
 import FoodCard from '../components/FoodCard';
 import Toast from '../components/Toast';
@@ -19,7 +22,10 @@ import {
   ListFilter,
   CheckCircle,
   Refrigerator,
-  Smile
+  Smile,
+  BrainCircuit,
+  ShoppingBag,
+  AlertTriangle
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 
@@ -59,9 +65,128 @@ const Dashboard = () => {
   const [storageType, setStorageType] = useState('Fridge');
   const [status, setStatus] = useState('Unopened');
   const [isPredicting, setIsPredicting] = useState(false);
+  const [notes, setNotes] = useState('');
+
+  // Autocomplete states
+  const [refSuggestions, setRefSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const skipAutocompleteRef = useRef(false);
+  const autocompleteRef = useRef(null);
+
+  // Goal tracking states
+  const [durationOption, setDurationOption] = useState('none');
+  const [customDays, setCustomDays] = useState('');
+  const [finishByDate, setFinishByDate] = useState('');
+  const [consumptionGoalDays, setConsumptionGoalDays] = useState(null);
+
+  const updateFinishByDateFromDays = (days) => {
+    if (days > 0 && purchaseDate) {
+      const pDate = new Date(purchaseDate);
+      pDate.setDate(pDate.getDate() + days);
+      setFinishByDate(pDate.toISOString().split('T')[0]);
+      setConsumptionGoalDays(days);
+    } else {
+      setFinishByDate('');
+      setConsumptionGoalDays(null);
+    }
+  };
+
+  const handleDurationOptionChange = (option) => {
+    setDurationOption(option);
+    if (option === 'none') {
+      setFinishByDate('');
+      setConsumptionGoalDays(null);
+    } else if (option === '3days') {
+      updateFinishByDateFromDays(3);
+    } else if (option === '1week') {
+      updateFinishByDateFromDays(7);
+    } else if (option === '2weeks') {
+      updateFinishByDateFromDays(14);
+    } else if (option === '1month') {
+      updateFinishByDateFromDays(30);
+    } else if (option === 'custom') {
+      const days = parseInt(customDays) || 0;
+      updateFinishByDateFromDays(days);
+    }
+  };
+
+  const handleCustomDaysChange = (val) => {
+    setCustomDays(val);
+    const days = parseInt(val) || 0;
+    updateFinishByDateFromDays(days);
+  };
+
+  const handleFinishByDateChange = (dateVal) => {
+    setFinishByDate(dateVal);
+    if (purchaseDate && dateVal) {
+      const pDate = new Date(purchaseDate);
+      pDate.setHours(0, 0, 0, 0);
+      const fDate = new Date(dateVal);
+      fDate.setHours(0, 0, 0, 0);
+      const diffTime = fDate - pDate;
+      const days = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      setConsumptionGoalDays(days > 0 ? days : 0);
+    } else {
+      setConsumptionGoalDays(null);
+    }
+  };
+
+  // Recalculate goal date when purchaseDate changes
+  useEffect(() => {
+    if (durationOption !== 'none' && durationOption !== 'date') {
+      let days = 0;
+      if (durationOption === '3days') days = 3;
+      else if (durationOption === '1week') days = 7;
+      else if (durationOption === '2weeks') days = 14;
+      else if (durationOption === '1month') days = 30;
+      else if (durationOption === 'custom') days = parseInt(customDays) || 0;
+      updateFinishByDateFromDays(days);
+    } else if (durationOption === 'date' && finishByDate && purchaseDate) {
+      const pDate = new Date(purchaseDate);
+      pDate.setHours(0, 0, 0, 0);
+      const fDate = new Date(finishByDate);
+      fDate.setHours(0, 0, 0, 0);
+      const diffTime = fDate - pDate;
+      const days = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      setConsumptionGoalDays(days > 0 ? days : 0);
+    }
+  }, [purchaseDate]);
 
   // Notification Toast states
   const [toast, setToast] = useState(null);
+
+  // AI Notifications
+  const [aiNotifications, setAiNotifications] = useState([]);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const res = await getAiNotifications();
+        if (res.data.success) {
+          setAiNotifications(res.data.data);
+          
+          // Show toast alerts for the top 2 notifications
+          res.data.data.slice(0, 2).forEach((notif, idx) => {
+            setTimeout(() => {
+              let toastType = 'info';
+              if (notif.type === 'warning') toastType = 'warning';
+              else if (notif.type === 'shopping') toastType = 'success';
+              showToast(`AI Suggestion: ${notif.message}`, toastType);
+            }, 4500 + idx * 1200);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch AI notifications:', err);
+      }
+    };
+
+    if (items.length > 0) {
+      fetchNotifications();
+    }
+  }, [items.length]);
+
+  // Skip prediction on initial edit modal load
+  const skipPredictionRef = useRef(false);
 
   const { user } = useContext(AuthContext);
 
@@ -96,10 +221,14 @@ const Dashboard = () => {
   // Autocomplete prediction helper
   useEffect(() => {
     const predictExpiry = async () => {
-      if (!itemName || isEditing) return; // Skip if editing or name is empty
+      if (!itemName) return; // Skip if name is empty
+      if (skipPredictionRef.current) {
+        skipPredictionRef.current = false;
+        return;
+      }
       setIsPredicting(true);
       try {
-        const res = await getExpirySuggestion(itemName, category);
+        const res = await getExpirySuggestion(itemName, category, storageType, status);
         if (res.data.success) {
           const days = res.data.shelfLifeDays;
           const pDate = new Date(purchaseDate);
@@ -119,7 +248,104 @@ const Dashboard = () => {
     }, 600);
 
     return () => clearTimeout(timer);
-  }, [itemName, category, purchaseDate]);
+  }, [itemName, category, purchaseDate, storageType, status]);
+
+  // Autocomplete outside click handler
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  // Autocomplete search and category detection effect
+  useEffect(() => {
+    if (!itemName) {
+      setRefSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    if (skipAutocompleteRef.current) {
+      skipAutocompleteRef.current = false;
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      try {
+        const res = await searchFoodReference(itemName);
+        if (res.data.success) {
+          setRefSuggestions(res.data.data);
+          setShowSuggestions(res.data.data.length > 0);
+
+          // FEATURE 2: Automatic Category Detection
+          if (res.data.data.length > 0) {
+            const firstMatch = res.data.data[0];
+            const typedLower = itemName.toLowerCase().trim();
+            const matchNameLower = firstMatch.foodName.toLowerCase();
+            
+            if (matchNameLower.includes(typedLower) || typedLower.includes(matchNameLower)) {
+              setCategory(firstMatch.mappedCategory);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching autocomplete suggestions:', err);
+      }
+    };
+
+    const debounceTimer = setTimeout(() => {
+      fetchSuggestions();
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [itemName]);
+
+  const handleSelectSuggestion = (item) => {
+    setItemName(item.foodName);
+    setCategory(item.mappedCategory);
+    
+    // Select recommended storage type based on recommended fields
+    let storage = 'Fridge';
+    let shelfLifeDays = 7;
+    let tips = '';
+
+    if (item.isFridgeRecommended !== false && item.fridgeStorageTime) {
+      storage = 'Fridge';
+      shelfLifeDays = item.fridgeStorageTime;
+      tips = item.fridgeTips || '';
+    } else if (item.isPantryRecommended !== false && item.pantryStorageTime) {
+      storage = 'Room Temp';
+      shelfLifeDays = item.pantryStorageTime;
+      tips = item.pantryTips || '';
+    } else if (item.isFreezerRecommended !== false && item.freezerStorageTime) {
+      storage = 'Freezer';
+      shelfLifeDays = item.freezerStorageTime;
+      tips = item.freezerTips || '';
+    }
+
+    setStorageType(storage);
+
+    // Calculate expiry date based on recommended shelf life
+    const pDate = new Date(purchaseDate);
+    pDate.setDate(pDate.getDate() + shelfLifeDays);
+    setExpiryDate(pDate.toISOString().split('T')[0]);
+
+    // Save FoodKeeper reference info to notes
+    let noteText = `FoodKeeper ID: ${item.foodkeeperId}`;
+    if (tips) {
+      noteText += `\nStorage Tip: ${tips}`;
+    }
+    if (item.subCategory) {
+      noteText += `\nSubcategory: ${item.subCategory}`;
+    }
+    setNotes(noteText);
+    
+    setShowSuggestions(false);
+  };
 
   const handleOpenAddModal = () => {
     setIsEditing(false);
@@ -131,6 +357,17 @@ const Dashboard = () => {
     setExpiryDate('');
     setStorageType('Fridge');
     setStatus('Unopened');
+    setNotes('');
+    setRefSuggestions([]);
+    setShowSuggestions(false);
+    skipAutocompleteRef.current = false;
+
+    // Reset goal states
+    setDurationOption('none');
+    setCustomDays('');
+    setFinishByDate('');
+    setConsumptionGoalDays(null);
+
     setShowModal(true);
   };
 
@@ -144,6 +381,37 @@ const Dashboard = () => {
     setExpiryDate(new Date(item.expiryDate).toISOString().split('T')[0]);
     setStorageType(item.storageType);
     setStatus(item.status);
+    setNotes(item.notes || '');
+    setRefSuggestions([]);
+    setShowSuggestions(false);
+
+    // Initialize goal states from item
+    if (item.finishByDate) {
+      setFinishByDate(new Date(item.finishByDate).toISOString().split('T')[0]);
+      if (item.consumptionGoalDays) {
+        setConsumptionGoalDays(item.consumptionGoalDays);
+        if ([3, 7, 14, 30].includes(item.consumptionGoalDays)) {
+          if (item.consumptionGoalDays === 3) setDurationOption('3days');
+          else if (item.consumptionGoalDays === 7) setDurationOption('1week');
+          else if (item.consumptionGoalDays === 14) setDurationOption('2weeks');
+          else if (item.consumptionGoalDays === 30) setDurationOption('1month');
+        } else {
+          setDurationOption('custom');
+          setCustomDays(item.consumptionGoalDays.toString());
+        }
+      } else {
+        setDurationOption('date');
+        setConsumptionGoalDays(null);
+      }
+    } else {
+      setDurationOption('none');
+      setCustomDays('');
+      setFinishByDate('');
+      setConsumptionGoalDays(null);
+    }
+
+    skipAutocompleteRef.current = true;
+    skipPredictionRef.current = true;
     setShowModal(true);
   };
 
@@ -162,6 +430,9 @@ const Dashboard = () => {
       expiryDate,
       storageType,
       status,
+      notes,
+      finishByDate: finishByDate || null,
+      consumptionGoalDays: consumptionGoalDays || null
     };
 
     try {
@@ -181,7 +452,8 @@ const Dashboard = () => {
       setShowModal(false);
     } catch (err) {
       console.error(err);
-      showToast(err.response?.data?.message || 'Failed to save food item', 'error');
+      const errMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to save food item';
+      showToast(errMsg, 'error');
     }
   };
 
@@ -196,6 +468,21 @@ const Dashboard = () => {
       } catch (err) {
         console.error(err);
         showToast('Failed to delete food item', 'error');
+      }
+    }
+  };
+
+  const handleConsumeItem = async (id) => {
+    if (window.confirm('Mark this food item as consumed?')) {
+      try {
+        const res = await consumeFoodItem(id);
+        if (res.data.success) {
+          showToast('Food item marked as consumed');
+          fetchItems();
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to mark item as consumed', 'error');
       }
     }
   };
@@ -230,18 +517,47 @@ const Dashboard = () => {
   // Trigger reminders inside UI on load
   useEffect(() => {
     if (items.length > 0) {
+      // 1. Expiry alerts
       const expiringSoonItems = items.filter((item) => {
         const days = Math.ceil((new Date(item.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
         return days >= 0 && days <= 1; // Expiring today or tomorrow
       });
 
       if (expiringSoonItems.length > 0) {
-        // Find if we have notification triggers
         const names = expiringSoonItems.map(i => i.itemName).slice(0, 2).join(', ');
         const suffix = expiringSoonItems.length > 2 ? ' and others' : '';
         setTimeout(() => {
           showToast(`Reminder: ${names}${suffix} expiring soon!`, 'info');
         }, 1200);
+      }
+
+      // 2. Consumption Goal alerts (approaching or missed)
+      const approachingGoalItems = items.filter((item) => {
+        if (!item.finishByDate) return false;
+        const days = Math.ceil((new Date(item.finishByDate) - new Date()) / (1000 * 60 * 60 * 24));
+        return days >= 0 && days <= 1; // Goal tomorrow or today
+      });
+
+      const missedGoalItems = items.filter((item) => {
+        if (!item.finishByDate) return false;
+        const days = Math.ceil((new Date(item.finishByDate) - new Date()) / (1000 * 60 * 60 * 24));
+        return days < 0; // Goal missed
+      });
+
+      if (approachingGoalItems.length > 0) {
+        const names = approachingGoalItems.map(i => i.itemName).slice(0, 2).join(', ');
+        const suffix = approachingGoalItems.length > 2 ? ' and others' : '';
+        setTimeout(() => {
+          showToast(`Target Goal: Finish ${names}${suffix} today/tomorrow!`, 'warning');
+        }, 2400);
+      }
+
+      if (missedGoalItems.length > 0) {
+        const names = missedGoalItems.map(i => i.itemName).slice(0, 2).join(', ');
+        const suffix = missedGoalItems.length > 2 ? ' and others' : '';
+        setTimeout(() => {
+          showToast(`Goal Missed: ${names}${suffix} target finish date has passed!`, 'error');
+        }, 3600);
       }
     }
   }, [items.length]);
@@ -260,6 +576,30 @@ const Dashboard = () => {
           <Plus size={18} /> Add Food Item
         </button>
       </header>
+
+      {/* AI Notifications Alerts */}
+      {aiNotifications.length > 0 && (
+        <section className="glass-panel animate-slide-up" style={styles.aiAlertsPanel}>
+          <div style={styles.aiAlertsHeader}>
+            <BrainCircuit size={18} style={{ color: 'var(--accent-primary)' }} />
+            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700' }}>AI Assistant Alerts</h4>
+          </div>
+          <div style={styles.aiAlertsList}>
+            {aiNotifications.map((notif) => (
+              <div key={notif.id} style={styles.aiAlertItem}>
+                {notif.type === 'shopping' ? (
+                  <ShoppingBag size={14} style={{ color: 'var(--color-success)' }} />
+                ) : notif.type === 'warning' ? (
+                  <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />
+                ) : (
+                  <Info size={14} style={{ color: 'var(--accent-primary)' }} />
+                )}
+                <span style={styles.aiAlertText}>{notif.message}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Metrics Counters Row */}
       <section style={styles.metricsGrid}>
@@ -365,6 +705,7 @@ const Dashboard = () => {
               item={item}
               onEdit={handleOpenEditModal}
               onDelete={handleDeleteItem}
+              onConsume={handleConsumeItem}
             />
           ))}
         </section>
@@ -372,15 +713,15 @@ const Dashboard = () => {
 
       {/* Add / Edit modal Overlay */}
       {showModal && (
-        <div style={styles.modalOverlay}>
-          <div className="glass-panel animate-slide-up" style={styles.modalContent}>
-            <header style={styles.modalHeader}>
+        <div className="modal-overlay">
+          <div className="glass-panel modal-content animate-slide-up">
+            <header className="modal-header">
               <h3>{isEditing ? 'Modify Food Item' : 'Add Food Item'}</h3>
-              <button style={styles.closeModalBtn} onClick={() => setShowModal(false)}>×</button>
+              <button className="close-modal-btn" onClick={() => setShowModal(false)}>×</button>
             </header>
 
-            <form onSubmit={handleFormSubmit} style={styles.modalForm}>
-              <div className="form-group">
+            <form onSubmit={handleFormSubmit} className="modal-form">
+              <div className="form-group" style={{ position: 'relative' }} ref={autocompleteRef}>
                 <label className="form-label">Food Item Name *</label>
                 <input
                   type="text"
@@ -388,12 +729,27 @@ const Dashboard = () => {
                   placeholder="e.g. Organic Whole Milk"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
+                  onFocus={() => setShowSuggestions(refSuggestions.length > 0)}
                   required
                 />
+                {showSuggestions && refSuggestions.length > 0 && (
+                  <ul className="glass-panel autocomplete-dropdown">
+                    {refSuggestions.slice(0, 5).map((item) => (
+                      <li
+                        key={item._id}
+                        onClick={() => handleSelectSuggestion(item)}
+                        className="autocomplete-dropdown-item"
+                      >
+                        <span className="autocomplete-item-name">{item.foodName}</span>
+                        <span className="autocomplete-item-category">{item.mappedCategory}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
-              <div style={styles.formRow}>
-                <div className="form-group" style={{ flex: 1 }}>
+              <div className="form-row">
+                <div className="form-group">
                   <label className="form-label">Category *</label>
                   <select
                     className="form-input"
@@ -406,7 +762,7 @@ const Dashboard = () => {
                   </select>
                 </div>
 
-                <div className="form-group" style={{ flex: 1 }}>
+                <div className="form-group">
                   <label className="form-label">Quantity *</label>
                   <input
                     type="text"
@@ -419,8 +775,8 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              <div style={styles.formRow}>
-                <div className="form-group" style={{ flex: 1 }}>
+              <div className="form-row">
+                <div className="form-group">
                   <label className="form-label">Purchase Date</label>
                   <input
                     type="date"
@@ -430,7 +786,7 @@ const Dashboard = () => {
                   />
                 </div>
 
-                <div className="form-group" style={{ flex: 1, position: 'relative' }}>
+                <div className="form-group" style={{ position: 'relative' }}>
                   <label className="form-label">Expiry Date *</label>
                   <input
                     type="date"
@@ -448,8 +804,8 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              <div style={styles.formRow}>
-                <div className="form-group" style={{ flex: 1 }}>
+              <div className="form-row">
+                <div className="form-group">
                   <label className="form-label">Storage Location</label>
                   <select
                     className="form-input"
@@ -462,7 +818,7 @@ const Dashboard = () => {
                   </select>
                 </div>
 
-                <div className="form-group" style={{ flex: 1 }}>
+                <div className="form-group">
                   <label className="form-label">Opened Status</label>
                   <select
                     className="form-input"
@@ -476,7 +832,60 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              <div style={styles.modalActions}>
+
+
+              <div className="goal-section">
+                <h4 className="goal-section-title">Consumption Goal (Optional)</h4>
+                <p className="goal-section-subtitle">Set a target timeline to finish this item, separate from safety expiry.</p>
+                
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Consumption Target Mode</label>
+                    <select
+                      className="form-input"
+                      value={durationOption}
+                      onChange={(e) => handleDurationOptionChange(e.target.value)}
+                    >
+                      <option value="none">No Goal</option>
+                      <option value="3days">3 Days</option>
+                      <option value="1week">1 Week</option>
+                      <option value="2weeks">2 Weeks</option>
+                      <option value="1month">1 Month</option>
+                      <option value="custom">Custom Days</option>
+                      <option value="date">Specific Date</option>
+                    </select>
+                  </div>
+
+                  {durationOption === 'custom' && (
+                    <div className="form-group">
+                      <label className="form-label">Custom Duration (Days)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input"
+                        placeholder="e.g. 5"
+                        value={customDays}
+                        onChange={(e) => handleCustomDaysChange(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {(durationOption === 'date' || durationOption !== 'none') && durationOption !== 'custom' && (
+                    <div className="form-group">
+                      <label className="form-label">Finish By Date</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={finishByDate}
+                        onChange={(e) => handleFinishByDateChange(e.target.value)}
+                        disabled={durationOption !== 'date'}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
                   Cancel
                 </button>
@@ -738,6 +1147,57 @@ const styles = {
     borderTop: '1px solid var(--card-border)',
     paddingTop: '16px',
     marginTop: '12px',
+  },
+  goalSection: {
+    marginTop: '16px',
+    paddingTop: '16px',
+    borderTop: '1px solid var(--card-border)',
+  },
+  goalSectionTitle: {
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    marginBottom: '4px',
+    color: 'var(--text-primary)',
+  },
+  goalSectionSubtitle: {
+    fontSize: '0.75rem',
+    color: 'var(--text-muted)',
+    marginBottom: '12px',
+  },
+  aiAlertsPanel: {
+    padding: '16px 20px',
+    marginBottom: '24px',
+    borderLeft: '4px solid var(--accent-primary)',
+    background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.03) 0%, var(--card-bg) 100%)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  aiAlertsHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    borderBottom: '1px solid var(--card-border)',
+    paddingBottom: '8px',
+  },
+  aiAlertsList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+    gap: '12px',
+  },
+  aiAlertItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: 'var(--bg-secondary)',
+    padding: '8px 12px',
+    borderRadius: 'var(--border-radius-sm)',
+    border: '1px solid var(--card-border)',
+  },
+  aiAlertText: {
+    fontSize: '0.85rem',
+    color: 'var(--text-secondary)',
+    fontWeight: '500',
   },
 };
 

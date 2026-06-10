@@ -1,22 +1,25 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
+const JWT_SECRET = process.env.JWT_SECRET || "smartfridge_dev_secret_change_this";
+
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, {
+  return jwt.sign({ userId }, JWT_SECRET, {
     expiresIn: "30d",
   });
 };
 
 const register = async (req, res) => {
   try {
+    console.log('Register payload:', req.body);
     const { name, email, password, confirmPassword } = req.body;
 
     // Validation
-    if (!name || !email || !password || !confirmPassword) {
+    if (!name || !email || !password) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    if (password !== confirmPassword) {
+    if (confirmPassword !== undefined && password !== confirmPassword) {
       return res.status(400).json({ error: "Passwords do not match" });
     }
 
@@ -43,8 +46,9 @@ const register = async (req, res) => {
       user: user.getPublicProfile(),
     });
   } catch (error) {
-    console.error("Register error:", error);
-    res.status(500).json({ error: "Registration failed" });
+    console.error("Register error:", error.message);
+    console.error("Register error details:", error);
+    res.status(500).json({ error: error.message || "Registration failed" });
   }
 };
 
@@ -83,6 +87,18 @@ const login = async (req, res) => {
   }
 };
 
+const logout = async (req, res) => {
+  try {
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ error: "Logout failed" });
+  }
+};
+
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -104,5 +120,6 @@ const getMe = async (req, res) => {
 module.exports = {
   register,
   login,
+  logout,
   getMe,
 };

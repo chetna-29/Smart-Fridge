@@ -15,6 +15,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/food', require('./routes/food'));
+app.use('/api/history', require('./routes/history'));
 
 // Base Route
 app.get('/', (req, res) => {

@@ -1,6 +1,10 @@
 import React, { createContext, useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import {
+  loginUser,
+  registerUser,
+  getUserProfile,
+  logoutUser,
+} from '../services/api';
 
 export const AuthContext = createContext();
 
@@ -12,26 +16,26 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const loadUser = async () => {
-      if (token) {
-        try {
-          // Set authorization header globally for this load session
-          const res = await axios.get(`${API_URL}/auth/profile`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          
-          if (res.data.success) {
-            setUser(res.data.data);
-          } else {
-            logout();
-          }
-        } catch (err) {
-          console.error('Error loading user profile:', err);
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await getUserProfile();
+
+        if (res.data.success) {
+          setUser(res.data.user);
+          setError(null);
+        } else {
           logout();
         }
+      } catch (err) {
+        console.error('Error loading user profile:', err);
+        logout();
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     loadUser();
@@ -40,54 +44,62 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     setLoading(true);
     setError(null);
+
     try {
-      const res = await axios.post(`${API_URL}/auth/login`, { email, password });
+      const res = await loginUser(email, password);
+
       if (res.data.success) {
-        const userData = res.data.data;
-        localStorage.setItem('token', userData.token);
-        setToken(userData.token);
-        setUser({
-          _id: userData._id,
-          name: userData.name,
-          email: userData.email,
-        });
-        setLoading(false);
+        const { token: authToken, user: userProfile } = res.data;
+        localStorage.setItem('token', authToken);
+        setToken(authToken);
+        setUser(userProfile);
         return true;
       }
+
+      setError(res.data.message || 'Login failed');
+      return false;
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.response?.data?.message || 'Invalid email or password');
-      setLoading(false);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Invalid email or password');
       return false;
+    } finally {
+      setLoading(false);
     }
   };
 
   const register = async (name, email, password) => {
     setLoading(true);
     setError(null);
+
     try {
-      const res = await axios.post(`${API_URL}/auth/register`, { name, email, password });
+      const res = await registerUser(name, email, password);
+
       if (res.data.success) {
-        const userData = res.data.data;
-        localStorage.setItem('token', userData.token);
-        setToken(userData.token);
-        setUser({
-          _id: userData._id,
-          name: userData.name,
-          email: userData.email,
-        });
-        setLoading(false);
+        const { token: authToken, user: userProfile } = res.data;
+        localStorage.setItem('token', authToken);
+        setToken(authToken);
+        setUser(userProfile);
         return true;
       }
+
+      setError(res.data.message || 'Registration failed');
+      return false;
     } catch (err) {
       console.error('Registration error:', err);
-      setError(err.response?.data?.message || 'Registration failed');
-      setLoading(false);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Registration failed');
       return false;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await logoutUser();
+    } catch (err) {
+      console.warn('Logout API call failed:', err);
+    }
+
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);

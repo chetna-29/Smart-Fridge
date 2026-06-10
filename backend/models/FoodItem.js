@@ -14,13 +14,13 @@ const foodItemSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ["dairy", "fruits", "vegetables", "grains", "meat", "other"],
       required: [true, "Please provide a category"],
+      trim: true,
     },
     quantity: {
-      type: Number,
+      type: String,
       required: [true, "Please provide quantity"],
-      min: 1,
+      trim: true,
     },
     purchaseDate: {
       type: Date,
@@ -33,13 +33,16 @@ const foodItemSchema = new mongoose.Schema(
     },
     storageType: {
       type: String,
-      enum: ["fridge", "freezer", "pantry", "counter"],
-      default: "fridge",
+      required: [true, "Please provide storage type"],
+      trim: true,
+      default: "Fridge",
     },
     status: {
       type: String,
-      enum: ["fresh", "expiring_soon", "expired"],
-      default: "fresh",
+      required: true,
+      trim: true,
+      enum: ["Unopened", "Opened"],
+      default: "Unopened",
     },
     daysLeft: {
       type: Number,
@@ -48,6 +51,17 @@ const foodItemSchema = new mongoose.Schema(
     notes: {
       type: String,
       trim: true,
+    },
+    finishByDate: {
+      type: Date,
+    },
+    consumptionGoalDays: {
+      type: Number,
+    },
+    consumptionStatus: {
+      type: String,
+      enum: ["On Track", "Approaching Goal", "Goal Missed", "Finished"],
+      default: "On Track",
     },
   },
   { timestamps: true }
@@ -66,24 +80,38 @@ foodItemSchema.methods.calculateDaysLeft = function () {
 
   this.daysLeft = daysLeft;
 
-  // Update status based on days left
-  if (daysLeft < 0) {
-    this.status = "expired";
-  } else if (daysLeft <= 3 && daysLeft >= 1) {
-    this.status = "expiring_soon";
-  } else if (daysLeft > 3) {
-    this.status = "fresh";
-  } else {
-    this.status = "expired";
-  }
-
   return daysLeft;
 };
 
+// Calculate consumption goal status
+foodItemSchema.methods.calculateConsumptionStatus = function () {
+  if (!this.finishByDate) {
+    this.consumptionStatus = "On Track";
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const target = new Date(this.finishByDate);
+  target.setHours(0, 0, 0, 0);
+
+  const diffTime = target - today;
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (daysLeft < 0) {
+    this.consumptionStatus = "Goal Missed";
+  } else if (daysLeft <= 1) {
+    this.consumptionStatus = "Approaching Goal";
+  } else {
+    this.consumptionStatus = "On Track";
+  }
+};
+
 // Pre-save hook to calculate status
-foodItemSchema.pre("save", function (next) {
+foodItemSchema.pre("save", function () {
   this.calculateDaysLeft();
-  next();
+  this.calculateConsumptionStatus();
 });
 
 module.exports = mongoose.model("FoodItem", foodItemSchema);

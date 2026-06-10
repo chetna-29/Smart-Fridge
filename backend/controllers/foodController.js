@@ -1,9 +1,18 @@
 const FoodItem = require("../models/FoodItem");
+const History = require("../models/History");
 const {
   getShelfLifeDays,
   calculateExpiryDate,
   calculateDaysLeft,
 } = require("../utils/expiry");
+
+const recordHistory = async (foodItem, actionType, overrides = {}) => {
+  try {
+    await History.fromFoodItem(foodItem, actionType, overrides);
+  } catch (err) {
+    console.error(`History record failed for ${actionType}:`, err.message);
+  }
+};
 
 /**
  * @route   POST /api/foods/add
@@ -12,15 +21,21 @@ const {
  */
 exports.addFood = async (req, res) => {
   try {
-    const { itemName, category, quantity, purchaseDate, storageType, notes } = req.body;
+    const { itemName, category, quantity, purchaseDate, expiryDate, storageType, status, notes, finishByDate, consumptionGoalDays } = req.body;
 
     if (!itemName || !category || !quantity) {
       return res.status(400).json({ error: "Please provide all required fields" });
     }
 
-    const shelfLifeDays = getShelfLifeDays(category, itemName);
     const pDate = purchaseDate ? new Date(purchaseDate) : new Date();
-    const expiryDate = calculateExpiryDate(pDate, shelfLifeDays);
+    
+    let expDate;
+    if (expiryDate) {
+      expDate = new Date(expiryDate);
+    } else {
+      const shelfLifeDays = await getShelfLifeDays(category, itemName, storageType || "Fridge", status || "Unopened");
+      expDate = calculateExpiryDate(pDate, shelfLifeDays);
+    }
 
     const foodItem = new FoodItem({
       userId: req.userId,
@@ -28,13 +43,17 @@ exports.addFood = async (req, res) => {
       category,
       quantity,
       purchaseDate: pDate,
-      expiryDate,
-      storageType: storageType || "fridge",
+      expiryDate: expDate,
+      storageType: storageType || "Fridge",
+      status: status || "Unopened",
       notes,
+      finishByDate: finishByDate ? new Date(finishByDate) : undefined,
+      consumptionGoalDays: consumptionGoalDays || undefined,
     });
 
     foodItem.calculateDaysLeft();
     await foodItem.save();
+    await recordHistory(foodItem, "added");
 
     res.status(201).json({
       success: true,
@@ -54,11 +73,26 @@ exports.addFood = async (req, res) => {
  */
 exports.getAllFoods = async (req, res) => {
   try {
-    const { status, category } = req.query;
-    let query = { userId: req.userId };
+    const { search, category, expiryStatus, status } = req.query;
+    const query = { userId: req.userId };
 
-    if (status) query.status = status;
-    if (category) query.category = category;
+    if (search) query.itemName = { $regex: search, $options: "i" };
+    if (category && category !== "All") query.category = category;
+    if (expiryStatus && expiryStatus !== "all") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const threeDaysFromNow = new Date(today);
+      threeDaysFromNow.setDate(today.getDate() + 3);
+
+      if (expiryStatus === 'expired') {
+        query.expiryDate = { $lt: today };
+      } else if (expiryStatus === 'expiring' || expiryStatus === 'expiring_soon') {
+        query.expiryDate = { $gte: today, $lte: threeDaysFromNow };
+      } else if (expiryStatus === 'fresh') {
+        query.expiryDate = { $gt: threeDaysFromNow };
+      }
+    }
+    if (status && status !== "All") query.status = status;
 
     const foodItems = await FoodItem.find(query).sort({ expiryDate: 1 });
     foodItems.forEach((item) => item.calculateDaysLeft());
@@ -115,20 +149,30 @@ exports.updateFood = async (req, res) => {
       return res.status(403).json({ error: "Not authorized" });
     }
 
-    const { itemName, category, quantity, purchaseDate, storageType, notes } = req.body;
+    const { itemName, category, quantity, purchaseDate, expiryDate, storageType, status, notes, finishByDate, consumptionGoalDays } = req.body;
 
     if (itemName) foodItem.itemName = itemName;
     if (category) foodItem.category = category;
     if (quantity) foodItem.quantity = quantity;
     if (storageType) foodItem.storageType = storageType;
+    if (status) foodItem.status = status;
     if (notes) foodItem.notes = notes;
+    if (purchaseDate) foodItem.purchaseDate = new Date(purchaseDate);
+    if (finishByDate !== undefined) foodItem.finishByDate = finishByDate ? new Date(finishByDate) : null;
+    if (consumptionGoalDays !== undefined) foodItem.consumptionGoalDays = consumptionGoalDays;
 
-    if (purchaseDate || category) {
-      const pDate = purchaseDate ? new Date(purchaseDate) : foodItem.purchaseDate;
-      const cat = category || foodItem.category;
-      const shelfLifeDays = getShelfLifeDays(cat, foodItem.itemName);
+    if (expiryDate) {
+      foodItem.expiryDate = new Date(expiryDate);
+    } else if (purchaseDate || category || itemName || status || storageType || finishByDate || consumptionGoalDays) {
+      const pDate = foodItem.purchaseDate;
+      const cat = foodItem.category;
+      const shelfLifeDays = await getShelfLifeDays(
+        cat, 
+        foodItem.itemName, 
+        storageType || foodItem.storageType || "Fridge", 
+        status || foodItem.status || "Unopened"
+      );
       foodItem.expiryDate = calculateExpiryDate(pDate, shelfLifeDays);
-      foodItem.purchaseDate = pDate;
     }
 
     foodItem.calculateDaysLeft();
@@ -161,6 +205,7 @@ exports.deleteFood = async (req, res) => {
       return res.status(403).json({ error: "Not authorized" });
     }
 
+    await recordHistory(foodItem, "deleted");
     await FoodItem.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true, message: "Food item deleted successfully" });
   } catch (err) {
@@ -254,6 +299,42 @@ exports.getDashboardStats = async (req, res) => {
 
     res.status(200).json({ success: true, data: stats });
   } catch (err) {
+    res.status(500).json({ error: err.message || "Server error" });
+  }
+};
+
+exports.suggestExpiry = async (req, res) => {
+  try {
+    const { itemName = "", category = "other", storageType = "Fridge", status = "Unopened" } = req.query;
+    const days = await getShelfLifeDays(category, itemName, storageType, status);
+    res.status(200).json({
+      success: true,
+      shelfLifeDays: days,
+    });
+  } catch (err) {
+    console.error("Expiry suggestion error:", err);
+    res.status(500).json({ error: "Failed to predict expiry" });
+  }
+};
+
+exports.consumeFood = async (req, res) => {
+  try {
+    const foodItem = await FoodItem.findById(req.params.id);
+
+    if (!foodItem) {
+      return res.status(404).json({ error: "Food item not found" });
+    }
+
+    if (foodItem.userId.toString() !== req.userId.toString()) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    await recordHistory(foodItem, "consumed");
+    await foodItem.deleteOne();
+
+    res.status(200).json({ success: true, message: "Food item marked as consumed" });
+  } catch (err) {
+    console.error("Consume food error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
 };

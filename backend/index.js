@@ -7,6 +7,9 @@ const cors = require("cors");
 // Import routes
 const authRoutes = require("./routes/auth");
 const foodRoutes = require("./routes/food");
+const historyRoutes = require("./routes/history");
+const referenceRoutes = require("./routes/reference");
+const aiRoutes = require("./routes/ai");
 
 const app = express();
 
@@ -26,7 +29,10 @@ mongoose
 
 // API Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/foods", foodRoutes);
+app.use("/api/food", foodRoutes);
+app.use("/api/history", historyRoutes);
+app.use("/api/reference", referenceRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Health check
 app.get("/", (req, res) => {
@@ -38,17 +44,26 @@ app.get("/", (req, res) => {
       auth: [
         "POST /api/auth/register",
         "POST /api/auth/login",
+        "POST /api/auth/logout",
         "GET /api/auth/me",
       ],
-      foods: [
-        "POST /api/foods/add",
-        "GET /api/foods",
-        "GET /api/foods/:id",
-        "PUT /api/foods/:id",
-        "DELETE /api/foods/:id",
-        "GET /api/foods/expiring/soon",
-        "GET /api/foods/expired/list",
-        "GET /api/foods/dashboard/stats",
+      food: [
+        "POST /api/food",
+        "GET /api/food",
+        "GET /api/food/:id",
+        "PATCH /api/food/:id/consume",
+        "PUT /api/food/:id",
+        "DELETE /api/food/:id",
+        "GET /api/food/expiring/soon",
+        "GET /api/food/expired/list",
+        "GET /api/food/dashboard/stats",
+        "GET /api/food/suggest-expiry",
+      ],
+      history: [
+        "GET /api/history",
+        "GET /api/history/stats",
+        "GET /api/history/export",
+        "GET /api/history/recent",
       ],
     },
   });

@@ -3,6 +3,7 @@ import {
   Calendar, 
   Trash2, 
   Edit3, 
+  CheckCircle2,
   Apple, 
   Milk, 
   Flame, 
@@ -27,8 +28,8 @@ const categoryIcons = {
   Other: <HelpCircle size={20} />,
 };
 
-const FoodCard = ({ item, onEdit, onDelete }) => {
-  const { itemName, category, quantity, purchaseDate, expiryDate, storageType, status } = item;
+const FoodCard = ({ item, onEdit, onDelete, onConsume }) => {
+  const { itemName, category, quantity, purchaseDate, expiryDate, storageType, status, finishByDate } = item;
 
   const pDate = new Date(purchaseDate);
   const eDate = new Date(expiryDate);
@@ -54,14 +55,8 @@ const FoodCard = ({ item, onEdit, onDelete }) => {
 
   // Expiry styling and text
   let statusBadge = <span className="badge badge-success">Fresh</span>;
-  let glowStyle = {};
-  
   if (daysRemaining < 0) {
     statusBadge = <span className="badge badge-danger">Spoiled / Expired</span>;
-    glowStyle = {
-      boxShadow: '0 4px 20px -2px rgba(239, 68, 68, 0.15)',
-      borderColor: 'rgba(239, 68, 68, 0.3)',
-    };
   } else if (daysRemaining <= 3) {
     statusBadge = (
       <span className="badge badge-warning" style={{ animation: 'pulseGlow 2s infinite' }}>
@@ -69,9 +64,56 @@ const FoodCard = ({ item, onEdit, onDelete }) => {
         Expiring Soon
       </span>
     );
+  }
+
+  // Consumption Goal status
+  let goalText = '';
+  let goalBadge = null;
+  if (finishByDate) {
+    const fDate = new Date(finishByDate);
+    const cleanFDate = new Date(fDate);
+    cleanFDate.setHours(0, 0, 0, 0);
+    const goalRemainingDuration = cleanFDate - today;
+    const goalDaysRemaining = Math.ceil(goalRemainingDuration / (1000 * 60 * 60 * 24));
+    
+    if (goalDaysRemaining < 0) {
+      goalText = `Missed by ${Math.abs(goalDaysRemaining)} day${Math.abs(goalDaysRemaining) !== 1 ? 's' : ''}`;
+      goalBadge = <span className="badge badge-danger">Goal Missed</span>;
+    } else if (goalDaysRemaining <= 1) {
+      goalText = goalDaysRemaining === 0 ? 'Finish today!' : 'Finish tomorrow';
+      goalBadge = <span className="badge badge-warning">Goal Approaching</span>;
+    } else {
+      goalText = `Finish in ${goalDaysRemaining} days`;
+      goalBadge = <span className="badge badge-success">Goal On Track</span>;
+    }
+  }
+
+  // Combined glow and border styling prioritizing safety expiry, then consumption goal status
+  let glowStyle = {};
+  if (daysRemaining < 0) {
+    glowStyle = {
+      boxShadow: '0 4px 20px -2px rgba(239, 68, 68, 0.15)',
+      borderColor: 'rgba(239, 68, 68, 0.3)',
+    };
+  } else if (finishByDate && (Math.ceil((new Date(finishByDate) - today) / (1000 * 60 * 60 * 24)) < 0)) {
+    glowStyle = {
+      boxShadow: '0 4px 20px -2px rgba(239, 68, 68, 0.15)',
+      borderColor: 'rgba(239, 68, 68, 0.3)',
+    };
+  } else if (daysRemaining <= 3) {
     glowStyle = {
       boxShadow: '0 4px 20px -2px rgba(245, 158, 11, 0.15)',
       borderColor: 'rgba(245, 158, 11, 0.3)',
+    };
+  } else if (finishByDate && (Math.ceil((new Date(finishByDate) - today) / (1000 * 60 * 60 * 24)) <= 1)) {
+    glowStyle = {
+      boxShadow: '0 4px 20px -2px rgba(245, 158, 11, 0.15)',
+      borderColor: 'rgba(245, 158, 11, 0.3)',
+    };
+  } else if (finishByDate) {
+    glowStyle = {
+      boxShadow: '0 4px 20px -2px rgba(16, 185, 129, 0.1)',
+      borderColor: 'rgba(16, 185, 129, 0.2)',
     };
   }
 
@@ -102,6 +144,7 @@ const FoodCard = ({ item, onEdit, onDelete }) => {
         </div>
         <div style={styles.badgeContainer}>
           {statusBadge}
+          {goalBadge && <div style={{ marginTop: 4 }}>{goalBadge}</div>}
         </div>
       </div>
 
@@ -143,6 +186,18 @@ const FoodCard = ({ item, onEdit, onDelete }) => {
               Expiry: {eDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
           </div>
+
+          {finishByDate && (
+            <div style={{ ...styles.dateRow, marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--card-border)' }}>
+              <span style={{ ...styles.dateText, color: 'var(--accent-primary)', fontWeight: '600' }}>
+                <Calendar size={12} style={{ marginRight: 4 }} />
+                Finish By: {new Date(finishByDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+              <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                {goalText}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -151,6 +206,12 @@ const FoodCard = ({ item, onEdit, onDelete }) => {
           <Edit3 size={16} />
           Edit
         </button>
+        {onConsume && (
+          <button onClick={() => onConsume(item._id)} style={{ ...styles.actionBtn, color: 'var(--color-success)' }} title="Mark Consumed">
+            <CheckCircle2 size={16} />
+            Consumed
+          </button>
+        )}
         <button onClick={() => onDelete(item._id)} style={{ ...styles.actionBtn, color: 'var(--color-danger)' }} title="Delete Item">
           <Trash2 size={16} />
           Remove
@@ -203,6 +264,9 @@ const styles = {
   },
   badgeContainer: {
     display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: '4px',
     alignSelf: 'flex-start',
   },
   body: {

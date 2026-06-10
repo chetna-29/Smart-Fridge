@@ -10,17 +10,21 @@ const {
   getExpiringFood,
   getExpiredFood,
   getDashboardStats,
+  suggestExpiry,
+  consumeFood,
 } = require("../controllers/foodController");
 
 // All food routes are private
 router.use(auth);
 
 // CRUD operations
-router.post("/add", addFood);
+router.post("/", addFood);
 router.get("/", getAllFoods);
 router.get("/dashboard/stats", getDashboardStats);
 router.get("/expiring/soon", getExpiringFood);
 router.get("/expired/list", getExpiredFood);
+router.get("/suggest-expiry", suggestExpiry);
+router.patch("/:id/consume", consumeFood);
 router.get("/:id", getFood);
 router.put("/:id", updateFood);
 router.delete("/:id", deleteFood);

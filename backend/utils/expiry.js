@@ -1,21 +1,87 @@
 const shelfLifeData = require("../data/shelfLife.json");
+const referenceService = require("../services/referenceService");
 
 /**
- * Get shelf life days for a food item
+ * Get shelf life days for a food item from FoodKeeper database or fallback
  * @param {string} category - Food category
  * @param {string} itemName - Food item name
- * @returns {number} Days until expiry
+ * @param {string} storageType - Storage type (Fridge, Freezer, Pantry, Counter)
+ * @returns {Promise<number>} Days until expiry
  */
-const getShelfLifeDays = (category, itemName) => {
+const getShelfLifeDays = async (category, itemName, storageType = "Fridge") => {
+  if (!itemName) return 7;
+
+  try {
+    const match = await referenceService.findClosestMatch(itemName, category);
+    if (match && match.item) {
+      const item = match.item;
+      const st = String(storageType).toLowerCase();
+      let days = null;
+
+      if (st.includes("freezer") || st.includes("freeze")) {
+        if (item.isFreezerRecommended !== false) {
+          days = item.freezerStorageTime;
+        }
+      } else if (st.includes("pantry") || st.includes("counter")) {
+        if (item.isPantryRecommended !== false) {
+          days = item.pantryStorageTime;
+        }
+      } else {
+        // Default to fridge
+        if (item.isFridgeRecommended !== false) {
+          days = item.fridgeStorageTime;
+        }
+      }
+
+      // If we have a valid shelf life greater than 0, return it.
+      // If it is 0 (e.g. Package use-by date), fall back to shelfLife.json config.
+      if (days !== null && days !== undefined && days > 0) {
+        return days;
+      }
+    }
+  } catch (err) {
+    console.error("Error matching FoodKeeper in getShelfLifeDays:", err);
+  }
+
+  // Fallback to static shelfLife.json config
+  return getShelfLifeDaysFallback(category, itemName);
+};
+
+/**
+ * Fallback to local shelfLife.json file if USDA database match fails
+ */
+const getShelfLifeDaysFallback = (category, itemName) => {
+  if (!itemName || !category) return 7;
   const normalizedItem = itemName.toLowerCase().trim();
   const normalizedCategory = category.toLowerCase();
 
-  if (shelfLifeData[normalizedCategory]) {
-    const days = shelfLifeData[normalizedCategory][normalizedItem];
-    return days || shelfLifeData[normalizedCategory]["other"] || 7;
+  // Find category key case-insensitively
+  const actualCategoryKey = Object.keys(shelfLifeData).find(
+    (key) => key.toLowerCase() === normalizedCategory
+  ) || Object.keys(shelfLifeData).find(
+    (key) => normalizedCategory.includes(key.toLowerCase()) || key.toLowerCase().includes(normalizedCategory)
+  );
+
+  if (actualCategoryKey) {
+    const categoryData = shelfLifeData[actualCategoryKey];
+    
+    // 1. Direct match for item
+    if (categoryData[normalizedItem] !== undefined) {
+      return categoryData[normalizedItem];
+    }
+
+    // 2. Partial match for item (e.g., "whole milk" containing "milk")
+    for (const [key, value] of Object.entries(categoryData)) {
+      if (key !== "other" && key !== "generic_item" && normalizedItem.includes(key)) {
+        return value;
+      }
+    }
+
+    // 3. Fallback to category default or standard fallback
+    return categoryData["other"] || categoryData["generic_item"] || 7;
   }
 
-  return 7; // Default to 7 days
+  return 7; // Default fallback
 };
 
 /**

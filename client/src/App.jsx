@@ -3,13 +3,17 @@ import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import AuthPage from './pages/AuthPage';
 import Dashboard from './pages/Dashboard';
-import ProfilePlayground from './pages/ProfilePlayground';
+import InventoryHistory from './pages/InventoryHistory';
+import AnalyticsDashboard from './pages/AnalyticsDashboard';
+import TimelineView from './pages/TimelineView';
+import ReportsExport from './pages/ReportsExport';
+import AiDashboard from './pages/AiDashboard';
 import Navbar from './components/Navbar';
 import { Loader2 } from 'lucide-react';
 
 const AppContent = () => {
   const { user, loading } = useContext(AuthContext);
-  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard or playground
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   if (loading) {
     return (
@@ -29,11 +33,12 @@ const AppContent = () => {
     <div className="container">
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
       
-      {activeTab === 'dashboard' ? (
-        <Dashboard />
-      ) : (
-        <ProfilePlayground />
-      )}
+      {activeTab === 'dashboard' && <Dashboard />}
+      {activeTab === 'history' && <InventoryHistory />}
+      {activeTab === 'analytics' && <AnalyticsDashboard />}
+      {activeTab === 'timeline' && <TimelineView />}
+      {activeTab === 'reports' && <ReportsExport />}
+      {activeTab === 'playground' && <AiDashboard />}
     </div>
   );
 };

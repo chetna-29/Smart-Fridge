@@ -36,7 +36,7 @@ const Toast = ({ message, type = 'success', onClose, duration = 4000 }) => {
 
   return (
     <div
-      className="glass-panel"
+      className="glass-panel toast-alert"
       style={{
         ...styles.toast,
         backgroundColor: toastStyle.bg,

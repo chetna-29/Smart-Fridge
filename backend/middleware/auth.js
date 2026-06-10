@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const JWT_SECRET = process.env.JWT_SECRET || "smartfridge_dev_secret_change_this";
 
 /**
  * Auth middleware to verify JWT token
@@ -11,7 +12,7 @@ const auth = (req, res, next) => {
       return res.status(401).json({ error: "No token, authorization denied" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.userId = decoded.userId;
     req.user = decoded;
     next();
